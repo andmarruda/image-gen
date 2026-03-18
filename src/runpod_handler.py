@@ -5,6 +5,7 @@ import os
 import torch
 
 from .pipeline import get_pipeline, get_img2img_pipeline, get_controlnet_pipeline
+from .startup import preload_models
 from .utils import decode_input_image, apply_canny, image_to_bytes
 
 logger = logging.getLogger(__name__)
@@ -116,13 +117,7 @@ def handler(job: dict) -> dict:
 def start() -> None:
     import runpod
 
-    # Load models before the serverless loop starts so every job hits
-    # warm weights — no download or load time inside the handler.
     if os.getenv("PRELOAD_MODELS", "").lower() == "true":
-        logger.info("Preloading models before accepting jobs ...")
-        get_pipeline()
-        get_img2img_pipeline()
-        get_controlnet_pipeline()
-        logger.info("Preload complete.")
+        preload_models()
 
     runpod.serverless.start({"handler": handler})
