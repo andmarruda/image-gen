@@ -11,6 +11,24 @@ _img2img: FluxImg2ImgPipeline | None = None
 _controlnet: FluxControlNetPipeline | None = None
 
 
+def _resolve_model_source(model_id: str, hf_token: str | None) -> tuple[str, dict]:
+    """
+    Returns (source, kwargs) where source is either a local path (R2 cache)
+    or the original model_id (HuggingFace download).
+    """
+    if os.getenv("R2_ENABLED", "").lower() == "true":
+        from .r2_sync import local_path
+        cached = local_path(model_id)
+        if cached:
+            logger.info("Loading %s from R2 local cache: %s", model_id, cached)
+            return cached, {}
+
+    kwargs: dict = {}
+    if hf_token:
+        kwargs["token"] = hf_token
+    return model_id, kwargs
+
+
 def get_pipeline() -> FluxPipeline:
     global _txt2img
     if _txt2img is not None:
@@ -21,13 +39,12 @@ def get_pipeline() -> FluxPipeline:
     device = "cuda" if torch.cuda.is_available() else "cpu"
     dtype = torch.bfloat16 if device == "cuda" else torch.float32
 
+    source, kwargs = _resolve_model_source(model_id, hf_token)
     logger.info("Loading model %s on %s ...", model_id, device)
 
-    kwargs: dict = {"torch_dtype": dtype}
-    if hf_token:
-        kwargs["token"] = hf_token
+    kwargs["torch_dtype"] = dtype
 
-    _txt2img = FluxPipeline.from_pretrained(model_id, **kwargs).to(device)
+    _txt2img = FluxPipeline.from_pretrained(source, **kwargs).to(device)
 
     if device == "cuda":
         _txt2img.enable_model_cpu_offload()
@@ -64,8 +81,11 @@ def get_controlnet_pipeline() -> FluxControlNetPipeline:
     controlnet_id = os.getenv("CONTROLNET_MODEL_ID", "InstantX/FLUX.1-dev-Controlnet-Canny")
     dtype = txt2img.dtype if hasattr(txt2img, "dtype") else torch.bfloat16
 
+    controlnet_source, controlnet_kwargs = _resolve_model_source(controlnet_id, hf_token=None)
     logger.info("Loading ControlNet adapter %s ...", controlnet_id)
-    controlnet = FluxControlNetModel.from_pretrained(controlnet_id, torch_dtype=dtype)
+    controlnet = FluxControlNetModel.from_pretrained(
+        controlnet_source, torch_dtype=dtype, **controlnet_kwargs
+    )
 
     _controlnet = FluxControlNetPipeline.from_pipe(txt2img, controlnet=controlnet)
     logger.info("ControlNet pipeline ready.")
