@@ -1,0 +1,22 @@
+services:
+  api:
+    build: .
+    image: flux2-api:local
+    env_file: .env
+    ports:
+      - "${PORT:-5000}:${PORT:-5000}"
+    volumes:
+      - huggingface-cache:/cache/huggingface
+      - conversation-memory:/data/conversations
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    restart: unless-stopped
+
+volumes:
+  huggingface-cache:
+  conversation-memory:

@@ -38,22 +38,34 @@ def image_to_bytes(image: Image.Image) -> bytes:
     return buf.getvalue()
 
 
-def build_response(image: Image.Image, prompt: str, width: int, height: int):
+def build_response(
+    image: Image.Image,
+    prompt: str,
+    width: int,
+    height: int,
+    metadata: dict | None = None,
+):
     raw = image_to_bytes(image)
+    metadata = metadata or {}
 
     if wants_raw_bytes():
+        headers = {"Content-Disposition": "inline; filename=generated.png"}
+        if metadata.get("conversation_id"):
+            headers["X-Conversation-Id"] = metadata["conversation_id"]
+        if metadata.get("revision_id"):
+            headers["X-Revision-Id"] = metadata["revision_id"]
         return Response(
             raw,
             mimetype="image/png",
-            headers={"Content-Disposition": "inline; filename=generated.png"},
+            headers=headers,
         )
 
-    return jsonify(
-        {
-            "image": base64.b64encode(raw).decode("utf-8"),
-            "format": "png",
-            "prompt": prompt,
-            "width": width,
-            "height": height,
-        }
-    )
+    payload = {
+        "image": base64.b64encode(raw).decode("utf-8"),
+        "format": "png",
+        "prompt": prompt,
+        "width": width,
+        "height": height,
+    }
+    payload.update(metadata)
+    return jsonify(payload)

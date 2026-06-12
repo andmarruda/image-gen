@@ -2,113 +2,49 @@ import base64
 import logging
 import os
 
-import torch
-
-from .pipeline import get_pipeline, get_img2img_pipeline, get_controlnet_pipeline
+from .conversations import prepare as prepare_conversation, save_revision
+from .pipeline import generate
+from .requests import generation_params
 from .startup import preload_models
-from .utils import decode_input_image, apply_canny, image_to_bytes
+from .utils import image_to_bytes
 
 logger = logging.getLogger(__name__)
 
 
-def _make_generator(seed) -> torch.Generator | None:
-    if seed is None:
-        return None
-    return torch.Generator().manual_seed(int(seed))
-
-
-def _encode(image) -> dict:
-    w, h = image.size
-    return {
+def _encode(image, metadata: dict | None = None) -> dict:
+    width, height = image.size
+    payload = {
         "image": base64.b64encode(image_to_bytes(image)).decode("utf-8"),
         "format": "png",
-        "width": w,
-        "height": h,
+        "width": width,
+        "height": height,
     }
-
-
-def _txt2img(params: dict) -> dict:
-    prompt = params.get("prompt")
-    if not prompt:
-        return {"error": "'prompt' is required"}
-
-    result = get_pipeline()(
-        prompt=prompt,
-        num_inference_steps=int(params.get("num_inference_steps", 4)),
-        guidance_scale=float(params.get("guidance_scale", 0.0)),
-        width=int(params.get("width", 1024)),
-        height=int(params.get("height", 1024)),
-        generator=_make_generator(params.get("seed")),
-    )
-    return _encode(result.images[0])
-
-
-def _img2img(params: dict) -> dict:
-    prompt = params.get("prompt")
-    image_b64 = params.get("image")
-    if not prompt:
-        return {"error": "'prompt' is required"}
-    if not image_b64:
-        return {"error": "'image' (base64) is required"}
-
-    result = get_img2img_pipeline()(
-        prompt=prompt,
-        image=decode_input_image(image_b64),
-        strength=float(params.get("strength", 0.75)),
-        num_inference_steps=int(params.get("num_inference_steps", 4)),
-        guidance_scale=float(params.get("guidance_scale", 0.0)),
-        generator=_make_generator(params.get("seed")),
-    )
-    return _encode(result.images[0])
-
-
-def _controlnet(params: dict) -> dict:
-    prompt = params.get("prompt")
-    image_b64 = params.get("image")
-    if not prompt:
-        return {"error": "'prompt' is required"}
-    if not image_b64:
-        return {"error": "'image' (base64) is required"}
-
-    ref = decode_input_image(image_b64)
-    control = apply_canny(
-        ref,
-        int(params.get("canny_low_threshold", 100)),
-        int(params.get("canny_high_threshold", 200)),
-    )
-
-    result = get_controlnet_pipeline()(
-        prompt=prompt,
-        control_image=control,
-        controlnet_conditioning_scale=float(params.get("controlnet_conditioning_scale", 0.7)),
-        num_inference_steps=int(params.get("num_inference_steps", 28)),
-        guidance_scale=float(params.get("guidance_scale", 3.5)),
-        width=int(params.get("width", 1024)),
-        height=int(params.get("height", 1024)),
-        generator=_make_generator(params.get("seed")),
-    )
-    return _encode(result.images[0])
-
-
-_MODES = {
-    "txt2img": _txt2img,
-    "img2img": _img2img,
-    "controlnet": _controlnet,
-}
+    payload.update(metadata or {})
+    return payload
 
 
 def handler(job: dict) -> dict:
-    params = job.get("input", {})
-    mode = params.get("mode", "txt2img")
-
-    fn = _MODES.get(mode)
-    if fn is None:
-        return {"error": f"Unknown mode '{mode}'. Valid modes: {list(_MODES.keys())}"}
-
-    logger.info("RunPod job | mode=%s | prompt: %.80s", mode, params.get("prompt", ""))
+    params = dict(job.get("input", {}))
+    mode = params.pop("mode", "generate")
+    if mode not in {"generate", "txt2img", "edit", "img2img"}:
+        return {"error": "Valid modes: generate, txt2img, edit, img2img"}
 
     try:
-        return fn(params)
+        prepared, conversation_id = prepare_conversation(params)
+        parsed = generation_params(prepared)
+        if mode in {"edit", "img2img"} and not parsed["images"]:
+            raise ValueError("'image' or 'images' is required")
+        logger.info("RunPod job | mode=%s | references=%d", mode, len(parsed["images"]))
+        image = generate(**parsed)
+        metadata = {}
+        if conversation_id:
+            manifest = save_revision(conversation_id, image, parsed["prompt"])
+            metadata = {
+                "conversation_id": conversation_id,
+                "revision_id": manifest["latest_revision_id"],
+                "revision_count": len(manifest["revisions"]),
+            }
+        return _encode(image, metadata)
     except Exception as exc:
         logger.exception("Job failed")
         return {"error": str(exc)}
@@ -119,5 +55,4 @@ def start() -> None:
 
     if os.getenv("PRELOAD_MODELS", "").lower() == "true":
         preload_models()
-
     runpod.serverless.start({"handler": handler})

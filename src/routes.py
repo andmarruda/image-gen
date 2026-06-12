@@ -1,201 +1,152 @@
 import logging
+import hmac
+import os
 
 import torch
 from flask import Blueprint, jsonify, request
 
-from .pipeline import get_pipeline, get_img2img_pipeline, get_controlnet_pipeline
-from .utils import build_response, decode_input_image, apply_canny
+from .conversations import delete as delete_conversation
+from .conversations import get_manifest, prepare as prepare_conversation, save_revision
+from .model_config import model_defaults, model_family, model_id
+from .pipeline import generate as generate_image
+from .pipeline import get_controlnet_pipeline, pipeline_is_loaded
+from .requests import generation_params
+from .utils import apply_canny, build_response, decode_input_image
 
 logger = logging.getLogger(__name__)
-
 bp = Blueprint("api", __name__)
+
+
+@bp.before_request
+def authenticate():
+    expected = os.getenv("API_KEY")
+    if not expected or request.endpoint == "api.health":
+        return None
+    supplied = (
+        request.headers.get("X-API-Key")
+        or request.headers.get("Authorization", "").removeprefix("Bearer ")
+        or ""
+    )
+    if not hmac.compare_digest(supplied, expected):
+        return jsonify({"error": "unauthorized"}), 401
+    return None
+
+
+def _body_with_uploads() -> dict:
+    if not request.content_type or "multipart/form-data" not in request.content_type:
+        return request.get_json(silent=True) or {}
+
+    data = request.form.to_dict()
+    files = request.files.getlist("images") or request.files.getlist("image")
+    if files:
+        data["images"] = [file.read() for file in files]
+    return data
+
+
+@bp.errorhandler(ValueError)
+def invalid_request(exc):
+    return jsonify({"error": str(exc)}), 400
 
 
 @bp.get("/health")
 def health():
-    return jsonify({"status": "ok"})
+    return jsonify(
+        {
+            "status": "ok",
+            "model": model_id(),
+            "family": model_family(),
+            "loaded": pipeline_is_loaded(),
+            "cuda": torch.cuda.is_available(),
+            "defaults": model_defaults(),
+        }
+    )
+
+
+def _generate_with_memory(data: dict):
+    prepared, conversation_id = prepare_conversation(data)
+    params = generation_params(prepared)
+    logger.info(
+        "generate | conversation=%s | references=%d | prompt: %.80s",
+        conversation_id,
+        len(params["images"]),
+        params["prompt"],
+    )
+    image = generate_image(**params)
+    metadata = {}
+    if conversation_id:
+        manifest = save_revision(conversation_id, image, params["prompt"])
+        metadata = {
+            "conversation_id": conversation_id,
+            "revision_id": manifest["latest_revision_id"],
+            "revision_count": len(manifest["revisions"]),
+        }
+    width, height = image.size
+    return build_response(image, params["prompt"], width, height, metadata)
 
 
 @bp.post("/generate")
 def generate():
-    body = request.get_json(silent=True) or {}
-
-    prompt = body.get("prompt")
-    if not prompt:
-        return jsonify({"error": "'prompt' is required"}), 400
-
-    num_steps: int = int(body.get("num_inference_steps", 4))
-    guidance_scale: float = float(body.get("guidance_scale", 0.0))
-    width: int = int(body.get("width", 1024))
-    height: int = int(body.get("height", 1024))
-    seed = body.get("seed")
-
-    generator = None
-    if seed is not None:
-        generator = torch.Generator().manual_seed(int(seed))
-
-    logger.info("Generating image | prompt: %.80s", prompt)
-
-    pipe = get_pipeline()
-    result = pipe(
-        prompt=prompt,
-        num_inference_steps=num_steps,
-        guidance_scale=guidance_scale,
-        width=width,
-        height=height,
-        generator=generator,
-    )
-
-    return build_response(result.images[0], prompt, width, height)
+    return _generate_with_memory(_body_with_uploads())
 
 
+@bp.post("/generate/edit")
 @bp.post("/generate/img2img")
-def generate_img2img():
-    """
-    Accepts a reference image + prompt and generates a new image based on both.
+def edit():
+    data = _body_with_uploads()
+    prepared, conversation_id = prepare_conversation(data)
+    if not prepared.get("images") and not prepared.get("image"):
+        raise ValueError("'image' or 'images' is required")
+    if conversation_id:
+        prepared["conversation_id"] = conversation_id
+    return _generate_with_memory(prepared)
 
-    Body (JSON):
-        prompt          str   required
-        image           str   required  — base64-encoded PNG/JPG
 
-    Body (multipart/form-data):
-        prompt          str   required
-        image           file  required
+@bp.get("/conversations/<conversation_id>")
+def conversation(conversation_id: str):
+    manifest = get_manifest(conversation_id)
+    if manifest is None:
+        return jsonify({"error": "conversation not found"}), 404
+    return jsonify(manifest)
 
-    Optional:
-        strength              float  0.0–1.0  (default 0.75)
-        num_inference_steps   int    (default 4)
-        guidance_scale        float  (default 0.0)
-        seed                  int
-    """
-    # ── parse input ──────────────────────────────────────────────────────────
-    if request.content_type and "multipart/form-data" in request.content_type:
-        prompt = request.form.get("prompt")
-        file = request.files.get("image")
-        if not file:
-            return jsonify({"error": "'image' file is required"}), 400
-        raw_image = decode_input_image(file.read())
-        strength = float(request.form.get("strength", 0.75))
-        num_steps = int(request.form.get("num_inference_steps", 4))
-        guidance_scale = float(request.form.get("guidance_scale", 0.0))
-        seed = request.form.get("seed")
-    else:
-        body = request.get_json(silent=True) or {}
-        prompt = body.get("prompt")
-        image_b64 = body.get("image")
-        if not image_b64:
-            return jsonify({"error": "'image' (base64) is required"}), 400
-        raw_image = decode_input_image(image_b64)
-        strength = float(body.get("strength", 0.75))
-        num_steps = int(body.get("num_inference_steps", 4))
-        guidance_scale = float(body.get("guidance_scale", 0.0))
-        seed = body.get("seed")
 
-    if not prompt:
-        return jsonify({"error": "'prompt' is required"}), 400
-
-    generator = None
-    if seed is not None:
-        generator = torch.Generator().manual_seed(int(seed))
-
-    logger.info("img2img | strength=%.2f | prompt: %.80s", strength, prompt)
-
-    pipe = get_img2img_pipeline()
-    result = pipe(
-        prompt=prompt,
-        image=raw_image,
-        strength=strength,
-        num_inference_steps=num_steps,
-        guidance_scale=guidance_scale,
-        generator=generator,
-    )
-
-    width, height = result.images[0].size
-    return build_response(result.images[0], prompt, width, height)
+@bp.delete("/conversations/<conversation_id>")
+def remove_conversation(conversation_id: str):
+    if not delete_conversation(conversation_id):
+        return jsonify({"error": "conversation not found"}), 404
+    return jsonify({"deleted": True, "conversation_id": conversation_id})
 
 
 @bp.post("/generate/controlnet")
-def generate_controlnet():
-    """
-    Image-guided generation using ControlNet (Canny edges).
+def controlnet():
+    if model_family().startswith("flux2"):
+        return jsonify(
+            {"error": "ControlNet is FLUX.1-only. Use /generate/edit with FLUX.2 reference images."}
+        ), 409
 
-    Extracts the structural edges from the reference image and uses them
-    as a hard conditioning signal, so the output preserves the composition
-    of the original while following the text prompt for style and content.
-
-    Body (JSON):
-        prompt                      str    required
-        image                       str    required — base64-encoded PNG/JPG
-
-    Body (multipart/form-data):
-        prompt                      str    required
-        image                       file   required
-
-    Optional:
-        controlnet_conditioning_scale  float  0.0–1.0  (default 0.7)
-        canny_low_threshold            int              (default 100)
-        canny_high_threshold           int              (default 200)
-        num_inference_steps            int              (default 28)
-        guidance_scale                 float            (default 3.5)
-        width                          int              (default 1024)
-        height                         int              (default 1024)
-        seed                           int
-    """
-    if request.content_type and "multipart/form-data" in request.content_type:
-        prompt = request.form.get("prompt")
-        file = request.files.get("image")
-        if not file:
-            return jsonify({"error": "'image' file is required"}), 400
-        raw_image = decode_input_image(file.read())
-        conditioning_scale = float(request.form.get("controlnet_conditioning_scale", 0.7))
-        canny_low = int(request.form.get("canny_low_threshold", 100))
-        canny_high = int(request.form.get("canny_high_threshold", 200))
-        num_steps = int(request.form.get("num_inference_steps", 28))
-        guidance_scale = float(request.form.get("guidance_scale", 3.5))
-        width = int(request.form.get("width", 1024))
-        height = int(request.form.get("height", 1024))
-        seed = request.form.get("seed")
-    else:
-        body = request.get_json(silent=True) or {}
-        prompt = body.get("prompt")
-        image_b64 = body.get("image")
-        if not image_b64:
-            return jsonify({"error": "'image' (base64) is required"}), 400
-        raw_image = decode_input_image(image_b64)
-        conditioning_scale = float(body.get("controlnet_conditioning_scale", 0.7))
-        canny_low = int(body.get("canny_low_threshold", 100))
-        canny_high = int(body.get("canny_high_threshold", 200))
-        num_steps = int(body.get("num_inference_steps", 28))
-        guidance_scale = float(body.get("guidance_scale", 3.5))
-        width = int(body.get("width", 1024))
-        height = int(body.get("height", 1024))
-        seed = body.get("seed")
-
+    data = _body_with_uploads()
+    prompt = data.get("prompt")
+    images = data.get("images") or ([data["image"]] if data.get("image") else [])
     if not prompt:
-        return jsonify({"error": "'prompt' is required"}), 400
+        raise ValueError("'prompt' is required")
+    if not images:
+        raise ValueError("'image' is required")
 
-    control_image = apply_canny(raw_image, canny_low, canny_high)
-
-    generator = None
-    if seed is not None:
-        generator = torch.Generator().manual_seed(int(seed))
-
-    logger.info(
-        "controlnet | conditioning=%.2f | prompt: %.80s",
-        conditioning_scale,
-        prompt,
+    control = apply_canny(
+        decode_input_image(images[0]),
+        int(data.get("canny_low_threshold", 100)),
+        int(data.get("canny_high_threshold", 200)),
     )
-
-    pipe = get_controlnet_pipeline()
-    result = pipe(
+    seed = data.get("seed")
+    generator = torch.Generator().manual_seed(int(seed)) if seed is not None else None
+    result = get_controlnet_pipeline()(
         prompt=prompt,
-        control_image=control_image,
-        controlnet_conditioning_scale=conditioning_scale,
-        num_inference_steps=num_steps,
-        guidance_scale=guidance_scale,
-        width=width,
-        height=height,
+        control_image=control,
+        controlnet_conditioning_scale=float(data.get("controlnet_conditioning_scale", 0.7)),
+        num_inference_steps=int(data.get("num_inference_steps", 28)),
+        guidance_scale=float(data.get("guidance_scale", 3.5)),
+        width=int(data.get("width", 1024)),
+        height=int(data.get("height", 1024)),
         generator=generator,
     )
-
+    width, height = result.images[0].size
     return build_response(result.images[0], prompt, width, height)

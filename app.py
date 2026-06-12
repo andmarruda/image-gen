@@ -22,6 +22,7 @@ else:
     from src.routes import bp
 
     app = Flask(__name__)
+    app.config["MAX_CONTENT_LENGTH"] = int(os.getenv("MAX_REQUEST_MB", "32")) * 1024 * 1024
     app.register_blueprint(bp)
 
     if _PRELOAD:
@@ -30,4 +31,3 @@ else:
     if __name__ == "__main__":
         port = int(os.getenv("PORT", 5000))
         app.run(host="0.0.0.0", port=port, debug=False)
-

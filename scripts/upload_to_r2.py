@@ -16,8 +16,8 @@ Required env vars (.env or shell):
     R2_ACCESS_KEY_ID      R2 API token (Access Key ID)
     R2_SECRET_ACCESS_KEY  R2 API token (Secret Access Key)
     R2_BUCKET_NAME        target bucket name
-    MODEL_ID              model to upload (default: black-forest-labs/FLUX.1-schnell)
-    HF_TOKEN              required if MODEL_ID is gated (e.g. FLUX.1-dev)
+    MODEL_ID              configured model (default: FLUX.2-klein-4B)
+    HF_TOKEN              required if the model is gated
 
 Optional:
     UPLOAD_CONTROLNET     set to "true" to also upload the ControlNet adapter
@@ -42,15 +42,16 @@ logger = logging.getLogger(__name__)
 
 
 def main() -> None:
+    from src.model_config import model_family, runtime_model_id
     from src.r2_sync import upload
 
-    model_id = os.getenv("MODEL_ID", "black-forest-labs/FLUX.1-schnell")
+    model_id = runtime_model_id()
     hf_token = os.getenv("HF_TOKEN")
 
     logger.info("=== Uploading base model: %s ===", model_id)
     upload(model_id, hf_token=hf_token)
 
-    if os.getenv("UPLOAD_CONTROLNET", "").lower() == "true":
+    if model_family() == "flux1" and os.getenv("UPLOAD_CONTROLNET", "").lower() == "true":
         controlnet_id = os.getenv(
             "CONTROLNET_MODEL_ID", "InstantX/FLUX.1-dev-Controlnet-Canny"
         )

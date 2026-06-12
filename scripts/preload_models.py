@@ -28,16 +28,18 @@ logger = logging.getLogger(__name__)
 
 
 def main() -> None:
+    from src.model_config import model_family
     from src.pipeline import get_pipeline, get_img2img_pipeline, get_controlnet_pipeline
 
     logger.info("=== Preloading FLUX base pipeline ===")
     get_pipeline()
 
-    logger.info("=== Preloading img2img pipeline ===")
-    get_img2img_pipeline()
+    if model_family() == "flux1":
+        logger.info("=== Preloading img2img pipeline ===")
+        get_img2img_pipeline()
 
-    logger.info("=== Preloading ControlNet pipeline ===")
-    get_controlnet_pipeline()
+        logger.info("=== Preloading ControlNet pipeline ===")
+        get_controlnet_pipeline()
 
     cache_dir = os.getenv("HF_HOME", os.path.expanduser("~/.cache/huggingface"))
     logger.info("All models cached at: %s", cache_dir)

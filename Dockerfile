@@ -1,5 +1,5 @@
-# ── base: CUDA 12.1 runtime so torch can use the GPU ──────────────────────────
-FROM nvidia/cuda:12.1.1-cudnn8-runtime-ubuntu22.04
+# syntax=docker/dockerfile:1.7
+FROM nvidia/cuda:12.4.1-cudnn-runtime-ubuntu22.04
 
 ENV DEBIAN_FRONTEND=noninteractive \
     PYTHONDONTWRITEBYTECODE=1 \
@@ -7,14 +7,14 @@ ENV DEBIAN_FRONTEND=noninteractive \
 
 # ── system deps ───────────────────────────────────────────────────────────────
 RUN apt-get update && apt-get install -y --no-install-recommends \
-        python3.11 \
-        python3.11-dev \
+        python3 \
+        python3-dev \
         python3-pip \
         libgl1-mesa-glx \
         libglib2.0-0 \
         curl \
-    && ln -sf /usr/bin/python3.11 /usr/bin/python3 \
-    && ln -sf /usr/bin/python3.11 /usr/bin/python \
+        git \
+    && ln -sf /usr/bin/python3 /usr/bin/python \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
@@ -24,8 +24,8 @@ RUN pip install --no-cache-dir --upgrade pip
 
 COPY config/requirements.txt config/requirements.txt
 RUN pip install --no-cache-dir \
-        torch==2.4.1 \
-        --index-url https://download.pytorch.org/whl/cu121 \
+        torch==2.6.0 \
+        --index-url https://download.pytorch.org/whl/cu124 \
     && pip install --no-cache-dir -r config/requirements.txt
 
 # ── app source ────────────────────────────────────────────────────────────────
@@ -41,6 +41,8 @@ VOLUME /cache/huggingface
 
 # ── runtime ───────────────────────────────────────────────────────────────────
 EXPOSE ${PORT:-5000}
+HEALTHCHECK --interval=30s --timeout=5s --start-period=30s --retries=3 \
+  CMD curl -fsS http://localhost:${PORT:-5000}/health || exit 1
 
 # RUNPOD_ENABLED=true  → python app.py  (RunPod serverless handler)
 # RUNPOD_ENABLED=false → gunicorn       (standard HTTP server)
