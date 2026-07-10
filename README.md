@@ -10,6 +10,12 @@ mantém memória visual entre pedidos de uma conversa.
 - [English](docs/en/README.md)
 - [Índice bilíngue](docs/README.md)
 
+RunPod setup, environment variables, and an example metadata-rich request
+payload are documented in English:
+
+- [RunPod deployment](docs/en/deployment.md#runpod-serverless)
+- [RunPod tracking payload example](docs/en/api.md#runpod-tracking-payload-example)
+
 ## Escolha recomendada
 
 | Perfil | Modelo | GPU | Passos | Uso |
@@ -143,8 +149,11 @@ e VRAM.
 
 1. Publique a imagem pelo workflow GitHub Actions.
 2. Crie um endpoint RunPod usando `ghcr.io/SEU_USUARIO/SEU_REPO:latest`.
-3. Anexe um Network Volume em `/cache/huggingface`.
-4. Monte também a memória em `CONVERSATION_DIR`, ou use o mesmo volume.
+3. Anexe um Network Volume ao endpoint. Em RunPod Serverless ele monta em
+   `/runpod-volume`.
+4. Configure `HF_HOME=/runpod-volume/huggingface` para persistir o cache dos
+   pesos e `CONVERSATION_DIR=/runpod-volume/conversations` para persistir a
+   memória.
 5. Configure `RUNPOD_ENABLED=true`, `MODEL_ID` e `HF_TOKEN`.
 6. Use um worker por GPU e escale o número de workers pela fila.
 

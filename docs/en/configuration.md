@@ -18,7 +18,7 @@ Variables may be set through `.env`, Docker, RunPod, or the process environment.
 |---|---|---|
 | `MODEL_ID` | `black-forest-labs/FLUX.2-dev` | Configured model |
 | `HF_TOKEN` | unset | Token for gated models and remote encoder |
-| `HF_HOME` | `/cache/huggingface` in Docker | Hugging Face cache |
+| `HF_HOME` | `/cache/huggingface` in Docker; use `/runpod-volume/huggingface` on RunPod Serverless | Hugging Face cache |
 | `MODEL_CPU_OFFLOAD` | `false` | Move components between CPU/GPU to reduce VRAM |
 | `FLUX2_DEV_4BIT` | `true` | Use the quantized Dev checkpoint |
 | `FLUX2_DEV_QUANTIZED_MODEL_ID` | `diffusers/FLUX.2-dev-bnb-4bit` | Runtime 4-bit checkpoint |
@@ -33,7 +33,7 @@ When `FLUX2_TEXT_ENCODER_MODE=remote`, prompts are sent to the remote service.
 | Variable | Default | Description |
 |---|---|---|
 | `CONVERSATION_MEMORY_ENABLED` | `true` | Enable visual memory |
-| `CONVERSATION_DIR` | `/data/conversations` | Images and manifests directory |
+| `CONVERSATION_DIR` | `/data/conversations`; use `/runpod-volume/conversations` on RunPod Serverless | Images and manifests directory |
 | `CONVERSATION_MAX_REVISIONS` | `10` | Revisions retained per conversation |
 
 ## FLUX.1 and ControlNet
@@ -83,4 +83,3 @@ HF_TOKEN=hf_...
 DOWNLOAD_CONTROLNET=true
 CONTROLNET_MODEL_ID=InstantX/FLUX.1-dev-Controlnet-Canny
 ```
-

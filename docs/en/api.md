@@ -152,3 +152,40 @@ The handler receives fields inside `input`:
 Valid modes: `generate`, `txt2img`, `edit`, and `img2img`. ControlNet is not
 exposed through the current RunPod handler.
 
+### RunPod tracking payload example
+
+Use this shape when the caller needs to keep tenant, user, brand, preset, and
+session context next to each generated image for later evaluation or training
+work:
+
+```json
+{
+  "input": {
+    "mode": "generate",
+    "prompt": "premium skincare product on a clean reflective surface, soft studio lighting, realistic advertising photography, pastel botanical background, no visible text",
+    "negative_prompt": "text, letters, words, captions, logos, watermarks, brand marks, distorted hands, extra fingers, low quality, blurry, noisy",
+    "width": 1080,
+    "height": 1080,
+    "format": "png",
+    "response_format": "base64",
+    "seed": null,
+    "metadata": {
+      "tenant_id": 123,
+      "user_id": 456,
+      "brand_id": "789",
+      "intent": "post",
+      "preset_id": "instagram_post",
+      "agent_session_id": "uuid-da-sessao"
+    }
+  }
+}
+```
+
+Current handler behavior:
+
+- `prompt`, `width`, `height`, `seed`, `mode`, `image`, `images`, and generation
+  parameters are used by inference.
+- The RunPod handler always returns JSON with a base64 PNG in `image`.
+- `metadata`, `negative_prompt`, `format`, and `response_format` are useful
+  caller-side tracking fields today. Store them with the job request/response if
+  you plan to build evaluation datasets later.

@@ -19,7 +19,7 @@ no ambiente do processo.
 |---|---|---|
 | `MODEL_ID` | `black-forest-labs/FLUX.2-dev` | Modelo configurado |
 | `HF_TOKEN` | não definido | Token para modelos gated e encoder remoto |
-| `HF_HOME` | `/cache/huggingface` no Docker | Cache Hugging Face |
+| `HF_HOME` | `/cache/huggingface` no Docker; use `/runpod-volume/huggingface` no RunPod Serverless | Cache Hugging Face |
 | `MODEL_CPU_OFFLOAD` | `false` | Move componentes entre CPU/GPU para reduzir VRAM |
 | `FLUX2_DEV_4BIT` | `true` | Usa checkpoint Dev quantizado |
 | `FLUX2_DEV_QUANTIZED_MODEL_ID` | `diffusers/FLUX.2-dev-bnb-4bit` | Checkpoint runtime 4-bit |
@@ -35,7 +35,7 @@ serviço remoto.
 | Variável | Padrão | Descrição |
 |---|---|---|
 | `CONVERSATION_MEMORY_ENABLED` | `true` | Ativa memória visual |
-| `CONVERSATION_DIR` | `/data/conversations` | Diretório de imagens e manifestos |
+| `CONVERSATION_DIR` | `/data/conversations`; use `/runpod-volume/conversations` no RunPod Serverless | Diretório de imagens e manifestos |
 | `CONVERSATION_MAX_REVISIONS` | `10` | Revisões mantidas por conversa |
 
 ## FLUX.1 e ControlNet
@@ -85,4 +85,3 @@ HF_TOKEN=hf_...
 DOWNLOAD_CONTROLNET=true
 CONTROLNET_MODEL_ID=InstantX/FLUX.1-dev-Controlnet-Canny
 ```
-

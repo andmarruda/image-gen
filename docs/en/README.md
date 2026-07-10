@@ -13,6 +13,10 @@ conversation memory, a traditional HTTP server, and RunPod Serverless support.
 6. [Deployment and operations](deployment.md): Docker, RunPod, R2, and scaling.
 7. [Security and guardrails](guardrails.md): existing protections and recommendations.
 
+For RunPod, start with [Deployment and operations](deployment.md#runpod-serverless)
+and use the [RunPod tracking payload example](api.md#runpod-tracking-payload-example)
+when you need request metadata for later evaluation or training.
+
 ## Capabilities
 
 - Text-to-image generation.

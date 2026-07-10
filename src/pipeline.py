@@ -36,7 +36,7 @@ def _resolve_model_source(value: str, hf_token: str | None) -> tuple[str, dict]:
     return value, kwargs
 
 
-def _remote_text_encoder(prompts: list[str]) -> torch.Tensor:
+def _remote_text_encoder(prompt: str) -> torch.Tensor:
     url = os.getenv(
         "FLUX2_REMOTE_TEXT_ENCODER_URL",
         "https://remote-text-encoder-flux-2.huggingface.co/predict",
@@ -45,13 +45,15 @@ def _remote_text_encoder(prompts: list[str]) -> torch.Tensor:
     if not token:
         raise RuntimeError("HF_TOKEN is required by FLUX2_TEXT_ENCODER_MODE=remote")
 
+    logger.info("Requesting FLUX.2 remote text encoder embeddings.")
     response = requests.post(
         url,
-        json={"prompt": prompts},
+        json={"prompt": prompt},
         headers={"Authorization": f"Bearer {token}"},
         timeout=int(os.getenv("FLUX2_TEXT_ENCODER_TIMEOUT", "120")),
     )
     response.raise_for_status()
+    logger.info("Received FLUX.2 remote text encoder embeddings.")
     return torch.load(io.BytesIO(response.content), map_location="cpu", weights_only=True).to("cuda")
 
 
@@ -139,7 +141,7 @@ def generate(
         if images:
             kwargs["image"] = images
         if model_family() == "flux2-dev" and os.getenv("FLUX2_TEXT_ENCODER_MODE", "remote").lower() == "remote":
-            kwargs["prompt_embeds"] = _remote_text_encoder([prompt])
+            kwargs["prompt_embeds"] = _remote_text_encoder(prompt)
             kwargs.pop("prompt")
     elif images:
         kwargs["image"] = images[0]

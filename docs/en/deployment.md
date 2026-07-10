@@ -27,6 +27,20 @@ For Docker Hub, configure:
 
 ## RunPod Serverless
 
+### Build and endpoint setup
+
+1. Build and publish the Docker image through GitHub Actions, or push an
+   equivalent image to a registry that RunPod can pull.
+2. Create a RunPod Serverless endpoint using the published image, for example
+   `ghcr.io/YOUR_USER/YOUR_REPO:latest`.
+3. Select a CUDA-capable GPU with enough VRAM for the configured model. The
+   default FLUX.2 Dev 4-bit profile is intended for roughly 24 GB+ GPUs.
+4. Attach a Network Volume to the endpoint so model weights and conversation
+   memory survive cold starts.
+5. Add the environment variables below in the RunPod endpoint settings.
+6. Send jobs with the `input` object documented in
+   [API reference: RunPod Serverless](api.md#runpod-serverless).
+
 Typical variables:
 
 ```env
@@ -37,18 +51,45 @@ FLUX2_DEV_4BIT=true
 FLUX2_TEXT_ENCODER_MODE=remote
 MODEL_CPU_OFFLOAD=false
 PRELOAD_MODELS=false
-HF_HOME=/cache/huggingface
-CONVERSATION_DIR=/data/conversations
+HF_HOME=/runpod-volume/huggingface
+CONVERSATION_DIR=/runpod-volume/conversations
 ```
 
-Mount persistent storage at:
+Required variables:
 
-- `/cache/huggingface` for weights.
-- `/data/conversations` for memory.
+- `RUNPOD_ENABLED=true`: starts the RunPod serverless worker instead of the HTTP
+  Gunicorn server.
+- `MODEL_ID`: selects the model to load.
+- `HF_TOKEN`: required for gated Hugging Face models and for the default FLUX.2
+  remote text encoder.
+- `HF_HOME=/runpod-volume/huggingface`: persists the Hugging Face/model cache.
+- `CONVERSATION_DIR=/runpod-volume/conversations`: persists visual memory and
+  revision history.
+
+Recommended variables:
+
+- `FLUX2_DEV_4BIT=true`: uses the quantized FLUX.2 Dev checkpoint.
+- `FLUX2_TEXT_ENCODER_MODE=remote`: avoids loading the text encoder locally.
+- `MODEL_CPU_OFFLOAD=false`: fastest option when the GPU has enough VRAM.
+- `PRELOAD_MODELS=false`: good serverless default; the first request loads the
+  model.
+- `CONVERSATION_MEMORY_ENABLED=true`: keeps generated revisions available for
+  iterative edits.
+- `CONVERSATION_MAX_REVISIONS=10`: caps stored revisions per conversation.
+
+Attach a Network Volume to the endpoint. In RunPod Serverless, that volume is
+mounted inside the worker at `/runpod-volume`. Use:
+
+- `/runpod-volume/huggingface` for weights/Hugging Face cache.
+- `/runpod-volume/conversations` for memory.
 
 For serverless, `PRELOAD_MODELS=false` starts the handler quickly, but the first
 request pays model-loading time. Persistent pods usually benefit from
 `PRELOAD_MODELS=true`.
+
+Do not bake model weights into the Docker image. Keep the image focused on code
+and dependencies, then let `HF_HOME` or the optional R2 cache provide the
+weights at runtime.
 
 ## Preload weights
 
@@ -131,4 +172,3 @@ operations, add metrics for:
 ### ControlNet returns 409
 
 The active model is FLUX.2. Switch to FLUX.1 or use `/generate/edit`.
-

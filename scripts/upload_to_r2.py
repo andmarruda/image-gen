@@ -16,7 +16,7 @@ Required env vars (.env or shell):
     R2_ACCESS_KEY_ID      R2 API token (Access Key ID)
     R2_SECRET_ACCESS_KEY  R2 API token (Secret Access Key)
     R2_BUCKET_NAME        target bucket name
-    MODEL_ID              configured model (default: FLUX.2-klein-4B)
+    MODEL_ID              configured model (default runtime: diffusers/FLUX.2-dev-bnb-4bit)
     HF_TOKEN              required if the model is gated
 
 Optional:

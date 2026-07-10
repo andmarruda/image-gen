@@ -31,18 +31,21 @@ RUN pip install --no-cache-dir \
 # ── app source ────────────────────────────────────────────────────────────────
 COPY app.py .
 COPY src/ src/
+COPY scripts/ scripts/
 
 # ── model cache ───────────────────────────────────────────────────────────────
 # Mount a persistent volume here so weights survive container restarts:
 #   docker run -v /your/local/path:/cache/huggingface ...
-#   RunPod: attach a Network Volume and set its mount point to /cache/huggingface
+#   Docker/local pods: mount a persistent volume at /cache/huggingface.
+#   RunPod Serverless: Network Volumes mount at /runpod-volume; set
+#   HF_HOME=/runpod-volume/huggingface.
 ENV HF_HOME=/cache/huggingface
 VOLUME /cache/huggingface
 
 # ── runtime ───────────────────────────────────────────────────────────────────
 EXPOSE ${PORT:-5000}
 HEALTHCHECK --interval=30s --timeout=5s --start-period=30s --retries=3 \
-  CMD curl -fsS http://localhost:${PORT:-5000}/health || exit 1
+  CMD if [ "$RUNPOD_ENABLED" = "true" ]; then exit 0; fi; curl -fsS http://localhost:${PORT:-5000}/health || exit 1
 
 # RUNPOD_ENABLED=true  → python app.py  (RunPod serverless handler)
 # RUNPOD_ENABLED=false → gunicorn       (standard HTTP server)

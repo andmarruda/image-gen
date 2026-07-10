@@ -37,14 +37,15 @@ FLUX2_DEV_4BIT=true
 FLUX2_TEXT_ENCODER_MODE=remote
 MODEL_CPU_OFFLOAD=false
 PRELOAD_MODELS=false
-HF_HOME=/cache/huggingface
-CONVERSATION_DIR=/data/conversations
+HF_HOME=/runpod-volume/huggingface
+CONVERSATION_DIR=/runpod-volume/conversations
 ```
 
-Monte armazenamento persistente em:
+Anexe um Network Volume ao endpoint. Em RunPod Serverless, esse volume monta em
+`/runpod-volume` dentro do worker. Use:
 
-- `/cache/huggingface` para pesos.
-- `/data/conversations` para memória.
+- `/runpod-volume/huggingface` para pesos/cache Hugging Face.
+- `/runpod-volume/conversations` para memória.
 
 Em serverless, `PRELOAD_MODELS=false` inicia o handler rapidamente, mas a
 primeira requisição paga o carregamento. Em pods persistentes,
@@ -132,4 +133,3 @@ adicione métricas de:
 ### ControlNet retorna 409
 
 O modelo ativo é FLUX.2. Troque para FLUX.1 ou use `/generate/edit`.
-
